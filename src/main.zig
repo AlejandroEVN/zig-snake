@@ -11,6 +11,46 @@ const CELL_VEC 	    = raylib.Vector2.init(CELL_SIZE, CELL_SIZE);
 const TARGET_FPS    = 60;
 const DEFAULT_SPEED = 5;
 
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+
+    var game = try Game.init(allocator, io);
+    defer deinit_game(&game, allocator);
+
+    raylib.initWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Snake");
+    defer raylib.closeWindow();
+
+    raylib.setTargetFPS(TARGET_FPS);
+
+    var accumulator: i64 = 0;
+
+    while (!raylib.windowShouldClose()) {
+        const delta_time_in_ns = @as(i64, @intFromFloat(raylib.getFrameTime() * std.time.ns_per_s));
+        accumulator += (@divFloor(delta_time_in_ns, game.speed));
+
+        handle_key_press(raylib.getKeyPressed(), &game);
+
+        if (accumulator >= delta_time_in_ns) {
+            try update(allocator, io, &game);
+
+            accumulator -= delta_time_in_ns;
+        }
+
+        render(game);
+    }
+}
+
+fn get_random_coordinates(io: std.Io) raylib.Vector2 {
+    const source: std.Random.IoSource = .{ .io = io };
+    const rnd = source.interface();
+
+    const random_x_pos = @divFloor((rnd.float(f32) * @as(f32, @floatFromInt(WINDOW_WIDTH))), 10) * 10;
+    const random_y_pos = @divFloor((rnd.float(f32) * @as(f32, @floatFromInt(WINDOW_HEIGHT))), 10) * 10;
+
+    return raylib.Vector2.init(random_x_pos, random_y_pos);
+}
+
 const Direction = enum {
     up,
     right,
@@ -19,7 +59,7 @@ const Direction = enum {
 
     fn toVector2(self: Direction) raylib.Vector2 {
         return switch (self) {
-            .up     => raylib.Vector2.init(-1, 0),
+            .up     => raylib.Vector2.init(0, -1),
             .right  => raylib.Vector2.init(1, 0),
             .down   => raylib.Vector2.init(0, 1),
             .left   => raylib.Vector2.init(-1, 0),
@@ -34,8 +74,8 @@ const Game = struct {
     previous_snake_direction: raylib.Vector2,
     speed: i8,
 
-    fn init(allocator: std.mem.Allocator, io: std.Io) Game {
-        const game = Game{ 
+    fn init(allocator: std.mem.Allocator, io: std.Io) !Game {
+        var game = Game{ 
             .snake_positions            = std.ArrayList(raylib.Vector2).empty, 
             .food_positions             = std.ArrayList(raylib.Vector2).empty, 
             .current_snake_direction    = raylib.Vector2.init(0, 0), 
@@ -43,33 +83,36 @@ const Game = struct {
             .speed                      = DEFAULT_SPEED
         };
  
-        try game.food_positions.append(allocator, get_random_coordinates(io));
+        try game.spawn_food(allocator, io);
+        try game.snake_positions.append(allocator, raylib.Vector2.init(0, 0));
 
         return game;
     }
 
+    fn spawn_food(self: *Game, allocator: std.mem.Allocator, io: std.Io) !void {
+        try self.food_positions.append(allocator, get_random_coordinates(io));
+    }
 };
 
-
-fn update(allocator: std.mem.Allocator, io: std.Io, game: *Game, key_pressed: raylib.KeyboardKey) !void {
+fn handle_key_press(key_pressed: raylib.KeyboardKey, game: *Game) void {
     _ = switch (key_pressed) {
         .up => {
-            if (!game.current_snake_direction.equals(Direction.up.toVector2())) { 
+            if (!game.current_snake_direction.equals(Direction.down.toVector2())) { 
                 game.current_snake_direction = Direction.up.toVector2();
             }
         },
         .right => {
-            if (!game.current_snake_direction.equals(Direction.right.toVector2())) { 
+            if (!game.current_snake_direction.equals(Direction.left.toVector2())) { 
                 game.current_snake_direction = Direction.right.toVector2();
             }
         },
         .down => {
-            if (!game.current_snake_direction.equals(Direction.down.toVector2())) { 
+            if (!game.current_snake_direction.equals(Direction.up.toVector2())) { 
                 game.current_snake_direction = Direction.down.toVector2();
             }
         },
         .left => {
-            if (!game.current_snake_direction.equals(Direction.left.toVector2())) { 
+            if (!game.current_snake_direction.equals(Direction.right.toVector2())) { 
                 game.current_snake_direction = Direction.left.toVector2();
             }
         },
@@ -77,7 +120,31 @@ fn update(allocator: std.mem.Allocator, io: std.Io, game: *Game, key_pressed: ra
         .two => game.speed = @max(1, game.speed - 1),
         else => {},
     };
+}
 
+
+fn deinit_game(game: *Game, allocator: std.mem.Allocator) void {
+    game.food_positions.deinit(allocator);
+    game.snake_positions.deinit(allocator);
+}
+
+fn render(game: Game) void {
+    raylib.beginDrawing();
+    defer raylib.endDrawing();
+
+    if (comptime RENDER_SNAKE) {
+        for (game.snake_positions.items) |pos| {
+            raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.red);
+        }
+        for (game.food_positions.items) |pos| {
+            raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.green);
+        }
+    }
+
+    raylib.clearBackground(raylib.Color.init(22, 22, 22, 1));
+}
+
+fn update(allocator: std.mem.Allocator, io: std.Io, game: *Game) !void {
     var i = game.snake_positions.items.len;
     const snake_head_curr_position = game.snake_positions.items[0];
 
@@ -124,67 +191,6 @@ fn update(allocator: std.mem.Allocator, io: std.Io, game: *Game, key_pressed: ra
         try game.snake_positions.append(allocator, new_segment_position);
         shouldGrow = false;
 
-        try game.food_positions.append(allocator, get_random_coordinates(io));
+        try game.spawn_food(allocator, io);
     }
 }
-
-fn deinit_game(game: *Game, allocator: std.mem.Allocator) void {
-    game.food_positions.deinit(allocator);
-    game.snake_positions.deinit(allocator);
-}
-
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    var game = Game.init(allocator, io);
-    defer deinit_game(&game, allocator);
-
-    raylib.initWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Snake");
-    defer raylib.closeWindow();
-
-    raylib.setTargetFPS(TARGET_FPS);
-
-    try game.snake_positions.append(allocator, raylib.Vector2.init(0, 0));
-
-
-    var accumulator: i64 = 0;
-
-    while (!raylib.windowShouldClose()) {
-        const delta_time_in_ns = @as(i64, @intFromFloat(raylib.getFrameTime() * std.time.ns_per_s));
-
-        accumulator += (@divFloor(delta_time_in_ns, game.speed));
-
-        if (accumulator >= delta_time_in_ns) {
-            try update(allocator, io, &game, raylib.getKeyPressed());
-
-            accumulator -= delta_time_in_ns;
-        }
-
-
-        raylib.beginDrawing();
-        defer raylib.endDrawing();
-
-        if (comptime RENDER_SNAKE) {
-            for (game.snake_positions.items) |pos| {
-                raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.red);
-            }
-            for (game.food_positions.items) |pos| {
-                raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.green);
-            }
-        }
-
-        raylib.clearBackground(raylib.Color.init(22, 22, 22, 1));
-    }
-}
-
-fn get_random_coordinates(io: std.Io) raylib.Vector2 {
-    const source: std.Random.IoSource = .{ .io = io };
-    const rnd = source.interface();
-
-    const random_x_pos = @divFloor((rnd.float(f32) * @as(f32, @floatFromInt(WINDOW_WIDTH))), 10) * 10;
-    const random_y_pos = @divFloor((rnd.float(f32) * @as(f32, @floatFromInt(WINDOW_HEIGHT))), 10) * 10;
-
-    return raylib.Vector2.init(random_x_pos, random_y_pos);
-}
-
