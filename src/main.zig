@@ -10,6 +10,9 @@ const CELL_SIZE     = 10;
 const CELL_VEC 	    = raylib.Vector2.init(CELL_SIZE, CELL_SIZE);
 const TARGET_FPS    = 60;
 const DEFAULT_SPEED = 5;
+const FONT_SIZE     = 20;
+const BG_COLOR      = raylib.Color.init(22, 22, 22, 1);
+const FG_COLOR      = raylib.Color.init(255, 161, 0, 128);
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
@@ -37,7 +40,7 @@ pub fn main(init: std.process.Init) !void {
             accumulator -= delta_time_in_ns;
         }
 
-        render(game);
+        try render(allocator, game);
     }
 }
 
@@ -92,6 +95,10 @@ const Game = struct {
     fn spawn_food(self: *Game, allocator: std.mem.Allocator, io: std.Io) !void {
         try self.food_positions.append(allocator, get_random_coordinates(io));
     }
+
+    fn score(self: Game) usize {
+        return self.snake_positions.items.len - 1;
+    }
 };
 
 fn handle_key_press(key_pressed: raylib.KeyboardKey, game: *Game) void {
@@ -128,7 +135,7 @@ fn deinit_game(game: *Game, allocator: std.mem.Allocator) void {
     game.snake_positions.deinit(allocator);
 }
 
-fn render(game: Game) void {
+fn render(allocator: std.mem.Allocator, game: Game) !void {
     raylib.beginDrawing();
     defer raylib.endDrawing();
 
@@ -141,7 +148,14 @@ fn render(game: Game) void {
         }
     }
 
-    raylib.clearBackground(raylib.Color.init(22, 22, 22, 1));
+    const score = try std.fmt.allocPrintSentinel(allocator, "Score: {d}", .{ game.score() }, 0);
+    defer allocator.free(score);
+
+    const size = raylib.measureText(score, FONT_SIZE);
+
+    raylib.drawText(score, WINDOW_WIDTH - size - 10, 1, FONT_SIZE, FG_COLOR);
+
+    raylib.clearBackground(BG_COLOR);
 }
 
 fn update(allocator: std.mem.Allocator, io: std.Io, game: *Game) !void {
