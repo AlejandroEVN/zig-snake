@@ -75,7 +75,6 @@ const Game = struct {
     snake_positions: std.ArrayList(raylib.Vector2),
     food_positions: std.ArrayList(raylib.Vector2),
     current_snake_direction: raylib.Vector2,
-    previous_snake_direction: raylib.Vector2,
     speed: i8,
     game_over: bool,
 
@@ -84,7 +83,6 @@ const Game = struct {
             .snake_positions            = std.ArrayList(raylib.Vector2).empty, 
             .food_positions             = std.ArrayList(raylib.Vector2).empty, 
             .current_snake_direction    = raylib.Vector2.init(0, 0), 
-            .previous_snake_direction   = raylib.Vector2.init(0, 0),  
             .speed                      = DEFAULT_SPEED,
             .game_over                  = false
         };
@@ -115,6 +113,7 @@ const Game = struct {
     fn update(self: *Game, allocator: std.mem.Allocator, io: std.Io) !void {
         var i = self.snake_positions.items.len;
         const snake_head_curr_position = self.snake_positions.items[0];
+        const snake_curr_last_segment = self.snake_positions.getLast();
 
         while (i > 0) {
             i -= 1;
@@ -162,10 +161,7 @@ const Game = struct {
         }
 
         if (shouldGrow) {
-            const last_snake_position = self.snake_positions.getLast();
-            const new_segment_position = raylib.Vector2.subtract(last_snake_position, self.previous_snake_direction);
-            self.previous_snake_direction = self.current_snake_direction;
-            try self.snake_positions.append(allocator, new_segment_position);
+            try self.snake_positions.append(allocator, snake_curr_last_segment);
             shouldGrow = false;
 
             try self.spawn_food(allocator, io);
