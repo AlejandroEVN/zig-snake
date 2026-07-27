@@ -3,16 +3,17 @@ const print = std.debug.print;
 
 const raylib = @import("raylib");
 
-const WINDOW_WIDTH  = 800;
-const WINDOW_HEIGHT = 450;
-const RENDER_SNAKE  = true;
-const CELL_SIZE     = 10;
-const CELL_VEC 	    = raylib.Vector2.init(CELL_SIZE, CELL_SIZE);
-const TARGET_FPS    = 60;
-const DEFAULT_SPEED = 5;
-const FONT_SIZE     = 20;
-const BG_COLOR      = raylib.Color.init(22, 22, 22, 1);
-const FG_COLOR      = raylib.Color.init(255, 161, 0, 128);
+const WINDOW_WIDTH   = 800;
+const WINDOW_HEIGHT  = 450;
+const RENDER_SNAKE   = true;
+const CELL_SIZE      = 10;
+const CELL_VEC 	     = raylib.Vector2.init(CELL_SIZE, CELL_SIZE);
+const TARGET_FPS     = 60;
+const DEFAULT_SPEED  = 5;
+const FONT_SIZE      = 20;
+const BG_COLOR       = raylib.Color.init(22, 22, 22, 1);
+const FG_COLOR       = raylib.Color.init(255, 161, 0, 128);
+const GAME_OVER_TEXT = "You Lost!\n"; 
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
@@ -34,8 +35,8 @@ pub fn main(init: std.process.Init) !void {
 
         handle_key_press(raylib.getKeyPressed(), &game);
 
-        if (accumulator >= delta_time_in_ns) {
-            try update(allocator, io, &game);
+        if (accumulator >= delta_time_in_ns and !game.game_over) {
+            try game.update(allocator, io);
 
             accumulator -= delta_time_in_ns;
         }
@@ -76,6 +77,7 @@ const Game = struct {
     current_snake_direction: raylib.Vector2,
     previous_snake_direction: raylib.Vector2,
     speed: i8,
+    game_over: bool,
 
     fn init(allocator: std.mem.Allocator, io: std.Io) !Game {
         var game = Game{ 
@@ -83,7 +85,8 @@ const Game = struct {
             .food_positions             = std.ArrayList(raylib.Vector2).empty, 
             .current_snake_direction    = raylib.Vector2.init(0, 0), 
             .previous_snake_direction   = raylib.Vector2.init(0, 0),  
-            .speed                      = DEFAULT_SPEED
+            .speed                      = DEFAULT_SPEED,
+            .game_over                  = false
         };
  
         try game.spawn_food(allocator, io);
@@ -93,11 +96,80 @@ const Game = struct {
     }
 
     fn spawn_food(self: *Game, allocator: std.mem.Allocator, io: std.Io) !void {
-        try self.food_positions.append(allocator, get_random_coordinates(io));
+        const coord = get_random_coordinates(io);
+
+        for (self.snake_positions.items) |snake_segment| {
+            if (snake_segment.equals(coord)) {
+                return self.spawn_food(allocator, io);
+            }
+        }
+
+        try self.food_positions.append(allocator, coord);
     }
 
     fn score(self: Game) usize {
         return self.snake_positions.items.len - 1;
+    }
+
+
+    fn update(self: *Game, allocator: std.mem.Allocator, io: std.Io) !void {
+        var i = self.snake_positions.items.len;
+        const snake_head_curr_position = self.snake_positions.items[0];
+
+        while (i > 0) {
+            i -= 1;
+
+            var snake_head_new_position: raylib.Vector2 = undefined;
+
+            if (i == 0) {
+                snake_head_new_position = snake_head_curr_position.add(self.current_snake_direction.multiply(CELL_VEC));
+
+                if (snake_head_new_position.x >= WINDOW_WIDTH) {
+                    snake_head_new_position.x = 0;
+                } else if (snake_head_new_position.x + CELL_SIZE <= 0) {
+                    snake_head_new_position.x = WINDOW_WIDTH - CELL_SIZE;
+                }
+
+                if (snake_head_new_position.y >= WINDOW_HEIGHT) {
+                    snake_head_new_position.y = 0;
+                } else if (snake_head_new_position.y + CELL_SIZE <= 0) {
+                    snake_head_new_position.y = WINDOW_HEIGHT - CELL_SIZE;
+                }
+
+                self.snake_positions.items[i] = snake_head_new_position;
+                for (self.snake_positions.items, 0..) |snake_segment, segment_num| {
+                    if (segment_num == 0) { continue; } 
+                    const overlaps = snake_segment.equals(snake_head_new_position);
+                    if (overlaps) {
+                        self.game_over = true;
+                        return;
+                    }
+                } 
+            } else {
+                self.snake_positions.items[i] = self.snake_positions.items[i - 1];
+            }
+
+        }
+
+        var shouldGrow = false;
+
+        for (self.food_positions.items, 0..) |food_pos, index| {
+            if (food_pos.equals(self.snake_positions.items[0])) {
+                shouldGrow = true;
+                _ = self.food_positions.orderedRemove(index);
+                break;
+            }
+        }
+
+        if (shouldGrow) {
+            const last_snake_position = self.snake_positions.getLast();
+            const new_segment_position = raylib.Vector2.subtract(last_snake_position, self.previous_snake_direction);
+            self.previous_snake_direction = self.current_snake_direction;
+            try self.snake_positions.append(allocator, new_segment_position);
+            shouldGrow = false;
+
+            try self.spawn_food(allocator, io);
+        }
     }
 };
 
@@ -139,6 +211,27 @@ fn render(allocator: std.mem.Allocator, game: Game) !void {
     raylib.beginDrawing();
     defer raylib.endDrawing();
 
+    raylib.clearBackground(BG_COLOR);
+
+    const score = try std.fmt.allocPrintSentinel(allocator, "Score: {d}", .{ game.score() }, 0);
+    defer allocator.free(score);
+    const score_text_size = raylib.measureText(score, FONT_SIZE);
+
+    if (game.game_over) {
+        const concated = try std.mem.concat(allocator, u8, &.{ GAME_OVER_TEXT, score });
+        defer allocator.free(concated);
+
+        raylib.drawText(
+            @ptrCast(concated), 
+            @divFloor(WINDOW_WIDTH, 2) - @divFloor(score_text_size, 2), 
+            @divFloor(WINDOW_HEIGHT, 2) - @divFloor(FONT_SIZE, 2),
+            FONT_SIZE, 
+            FG_COLOR
+        );
+
+        return;
+    }
+
     if (comptime RENDER_SNAKE) {
         for (game.snake_positions.items) |pos| {
             raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.red);
@@ -148,63 +241,6 @@ fn render(allocator: std.mem.Allocator, game: Game) !void {
         }
     }
 
-    const score = try std.fmt.allocPrintSentinel(allocator, "Score: {d}", .{ game.score() }, 0);
-    defer allocator.free(score);
-
-    const size = raylib.measureText(score, FONT_SIZE);
-
-    raylib.drawText(score, WINDOW_WIDTH - size - 10, 1, FONT_SIZE, FG_COLOR);
-
-    raylib.clearBackground(BG_COLOR);
+    raylib.drawText(score, WINDOW_WIDTH - score_text_size - 10, 1, FONT_SIZE, FG_COLOR);
 }
 
-fn update(allocator: std.mem.Allocator, io: std.Io, game: *Game) !void {
-    var i = game.snake_positions.items.len;
-    const snake_head_curr_position = game.snake_positions.items[0];
-
-        while (i > 0) {
-            i -= 1;
-
-            var snake_head_new_position: raylib.Vector2 = undefined;
-
-            if (i == 0) {
-                snake_head_new_position = snake_head_curr_position.add(game.current_snake_direction.multiply(CELL_VEC));
-
-                if (snake_head_new_position.x >= WINDOW_WIDTH) {
-                    snake_head_new_position.x = 0;
-                } else if (snake_head_new_position.x + CELL_SIZE <= 0) {
-                    snake_head_new_position.x = WINDOW_WIDTH - CELL_SIZE;
-                }
-
-                if (snake_head_new_position.y >= WINDOW_HEIGHT) {
-                    snake_head_new_position.y = 0;
-                } else if (snake_head_new_position.y + CELL_SIZE <= 0) {
-                    snake_head_new_position.y = WINDOW_HEIGHT - CELL_SIZE;
-                }
-
-                game.snake_positions.items[i] = snake_head_new_position;
-            } else {
-                game.snake_positions.items[i] = game.snake_positions.items[i - 1];
-            }
-        }
-
-    var shouldGrow = false;
-
-    for (game.food_positions.items, 0..) |food_pos, index| {
-        if (food_pos.equals(game.snake_positions.items[0])) {
-            shouldGrow = true;
-            _ = game.food_positions.orderedRemove(index);
-            break;
-        }
-    }
-
-    if (shouldGrow) {
-        const last_snake_position = game.snake_positions.getLast();
-        const new_segment_position = raylib.Vector2.subtract(last_snake_position, game.previous_snake_direction);
-        game.previous_snake_direction = game.current_snake_direction;
-        try game.snake_positions.append(allocator, new_segment_position);
-        shouldGrow = false;
-
-        try game.spawn_food(allocator, io);
-    }
-}
