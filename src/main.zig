@@ -5,7 +5,7 @@ const raylib = @import("raylib");
 
 const WINDOW_WIDTH = 800;
 const WINDOW_HEIGHT = 450;
-const CELL_SIZE = 20;
+const CELL_SIZE = 10;
 const CELL_VEC = raylib.Vector2.init(CELL_SIZE, CELL_SIZE);
 const TARGET_FPS = 60;
 const DEFAULT_SPEED = 5;
@@ -13,13 +13,15 @@ const FONT_SIZE = 20;
 const BG_COLOR = raylib.Color.init(22, 22, 22, 1);
 const FG_COLOR = raylib.Color.init(255, 161, 0, 128);
 const GAME_OVER_TEXT = "You Lost!\n";
+const RESTART_TEXT = "Press R to restart or Q / ESC to quit";
+const START_TEXT = "Press Enter to start or Q / ESC to quit";
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
     var game = try Game.init(allocator, io);
-    defer deinit_game(&game, allocator);
+    defer game.deinit_game(allocator);
 
     raylib.initWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Snake");
     defer raylib.closeWindow();
@@ -27,7 +29,16 @@ pub fn main(init: std.process.Init) !void {
     raylib.setTargetFPS(TARGET_FPS);
 
     while (!raylib.windowShouldClose()) {
-        handle_key_press(raylib.getKeyPressed(), &game);
+        const key_pressed = raylib.getKeyPressed(); 
+        handle_key_press(key_pressed, &game);
+
+        if (key_pressed == .q) {
+            break;
+        }
+
+        if (key_pressed == .r) {
+            try game.restart(allocator, io);
+        }
 
         try game.update(allocator, io);
 
@@ -68,16 +79,34 @@ const Game = struct {
     current_snake_direction: raylib.Vector2,
     speed: i8,
     game_over: bool,
+    has_started: bool,
     allow_move: bool,
     frames_counter: usize,
 
     fn init(allocator: std.mem.Allocator, io: std.Io) !Game {
-        var game = Game{ .snake_positions = std.ArrayList(raylib.Vector2).empty, .food_positions = std.ArrayList(raylib.Vector2).empty, .current_snake_direction = raylib.Vector2.init(0, 0), .speed = DEFAULT_SPEED, .game_over = false, .allow_move = false, .frames_counter = 0 };
+        const snake_positions: std.ArrayList(raylib.Vector2) = .empty;
 
-        try game.spawn_food(allocator, io);
+        var game = Game{ .snake_positions = snake_positions, .food_positions = std.ArrayList(raylib.Vector2).empty, .current_snake_direction = raylib.Vector2.init(0, 0), .speed = DEFAULT_SPEED, .game_over = false, .has_started = false, .allow_move = false, .frames_counter = 0 };
+
         try game.snake_positions.append(allocator, raylib.Vector2.init(0, 0));
+        try game.spawn_food(allocator, io);
 
         return game;
+    }
+
+    fn deinit_game(self: *Game, allocator: std.mem.Allocator) void {
+        self.food_positions.deinit(allocator);
+        self.snake_positions.deinit(allocator);
+    }
+
+    fn restart(self: *Game, allocator: std.mem.Allocator, io: std.Io) !void {
+        self.game_over = false;
+        self.has_started = true;
+        self.snake_positions.clearRetainingCapacity();
+        self.food_positions.clearRetainingCapacity();
+
+        try self.snake_positions.append(allocator, raylib.Vector2.init(0, 0));
+        try self.spawn_food(allocator, io);
     }
 
     fn spawn_food(self: *Game, allocator: std.mem.Allocator, io: std.Io) !void {
@@ -178,11 +207,10 @@ fn handle_key_press(key_pressed: raylib.KeyboardKey, game: *Game) void {
         game.current_snake_direction = Direction.right.toVector2();
         game.allow_move = false;
     }
-}
 
-fn deinit_game(game: *Game, allocator: std.mem.Allocator) void {
-    game.food_positions.deinit(allocator);
-    game.snake_positions.deinit(allocator);
+    if (key_pressed == .enter) {
+        game.has_started = true;
+    }
 }
 
 fn render(allocator: std.mem.Allocator, game: Game) !void {
@@ -195,11 +223,19 @@ fn render(allocator: std.mem.Allocator, game: Game) !void {
     defer allocator.free(score);
     const score_text_size = raylib.measureText(score, FONT_SIZE);
 
+    if (!game.has_started) {
+        raylib.drawText(START_TEXT, @divFloor(WINDOW_WIDTH, 2) - @divFloor(raylib.measureText(START_TEXT, FONT_SIZE), 2), @divFloor(WINDOW_HEIGHT, 2), FONT_SIZE, FG_COLOR);
+
+        return;
+    }
+
     if (game.game_over) {
         const concated = try std.mem.concat(allocator, u8, &.{ GAME_OVER_TEXT, score });
         defer allocator.free(concated);
 
-        raylib.drawText(@ptrCast(concated), @divFloor(WINDOW_WIDTH, 2) - @divFloor(score_text_size, 2), @divFloor(WINDOW_HEIGHT, 2) - @divFloor(FONT_SIZE, 2), FONT_SIZE, FG_COLOR);
+        raylib.drawText(@ptrCast(concated), @divFloor(WINDOW_WIDTH, 2) - @divFloor(score_text_size, 2), @divFloor(WINDOW_HEIGHT, 4) - FONT_SIZE, FONT_SIZE, FG_COLOR);
+
+        raylib.drawText(RESTART_TEXT, @divFloor(WINDOW_WIDTH, 2) - @divFloor(raylib.measureText(RESTART_TEXT, FONT_SIZE), 2), @divFloor(WINDOW_HEIGHT, 2), FONT_SIZE, FG_COLOR);
 
         return;
     }
