@@ -5,8 +5,7 @@ const raylib = @import("raylib");
 
 const WINDOW_WIDTH = 800;
 const WINDOW_HEIGHT = 450;
-const RENDER_SNAKE = true;
-const CELL_SIZE = 10;
+const CELL_SIZE = 20;
 const CELL_VEC = raylib.Vector2.init(CELL_SIZE, CELL_SIZE);
 const TARGET_FPS = 60;
 const DEFAULT_SPEED = 5;
@@ -41,8 +40,8 @@ fn get_random_coordinates(io: std.Io) raylib.Vector2 {
     const source: std.Random.IoSource = .{ .io = io };
     const rnd = source.interface();
 
-    const random_x_pos = @divFloor((rnd.float(f32) * @as(f32, @floatFromInt(WINDOW_WIDTH))), 10) * 10;
-    const random_y_pos = @divFloor((rnd.float(f32) * @as(f32, @floatFromInt(WINDOW_HEIGHT))), 10) * 10;
+    const random_x_pos = @divFloor((rnd.float(f32) * @as(f32, @floatFromInt(WINDOW_WIDTH))), CELL_SIZE) * CELL_SIZE;
+    const random_y_pos = @divFloor((rnd.float(f32) * @as(f32, @floatFromInt(WINDOW_HEIGHT))), CELL_SIZE) * CELL_SIZE;
 
     return raylib.Vector2.init(random_x_pos, random_y_pos);
 }
@@ -205,13 +204,11 @@ fn render(allocator: std.mem.Allocator, game: Game) !void {
         return;
     }
 
-    if (comptime RENDER_SNAKE) {
-        for (game.snake_positions.items) |pos| {
-            raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.red);
-        }
-        for (game.food_positions.items) |pos| {
-            raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.green);
-        }
+    for (game.snake_positions.items) |pos| {
+        raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.red);
+    }
+    for (game.food_positions.items) |pos| {
+        raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.green);
     }
 
     raylib.drawText(score, WINDOW_WIDTH - score_text_size - 10, 1, FONT_SIZE, FG_COLOR);
