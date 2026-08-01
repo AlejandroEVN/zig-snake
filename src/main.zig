@@ -240,11 +240,12 @@ fn render(allocator: std.mem.Allocator, game: Game) !void {
         return;
     }
 
-    for (game.snake_positions.items) |pos| {
-        raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.red);
+    for (game.snake_positions.items, 0..) |pos, i| {
+        const color = if (i == 0) raylib.Color.green else  raylib.Color.dark_green;
+        raylib.drawRectangleV(pos, CELL_VEC, color);
     }
     for (game.food_positions.items) |pos| {
-        raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.green);
+        raylib.drawRectangleV(pos, CELL_VEC, raylib.Color.red);
     }
 
     raylib.drawText(score, WINDOW_WIDTH - score_text_size - 10, 1, FONT_SIZE, FG_COLOR);
